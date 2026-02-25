@@ -156,3 +156,71 @@ jobs:
           tags: |
             ghcr.io/${{ env.REPO_SLUG }}:latest
             ghcr.io/${{ env.REPO_SLUG }}:${{ github.sha }}
+
+  # ---- Job 7 : Déploiement sur le VPS via SSH ----
+  deploy:
+    name: 🚀 Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' # Uniquement sur main
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      # Etape 1 : Créer le dossier sur le VPS
+      - name: Préparation du VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            mkdir -p ~/apps/vitall/grafana/provisioning/datasources
+            mkdir -p ~/apps/vitall/grafana/provisioning/dashboards
+            mkdir -p ~/apps/vitall/grafana/dashboards
+
+      # Etape 2 : Copier tous les fichiers de config sur le VPS
+      - name: Copie des fichiers de config
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.prod.yml,prometheus.yml,loki-config.yml,promtail-config.yml,grafana/"
+          target: ~/apps/vitall/
+
+      # Etape 3 : Générer le .env, pull l'image et démarrer
+      - name: Déploiement des services
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ~/apps/vitall
+
+            echo "📝 Génération du fichier .env..."
+            cat > .env << 'EOF'
+            POSTGRES_USER=vitall_user
+            POSTGRES_PASSWORD=vitall_secure_pwd_2026
+            POSTGRES_DB=vitall_db
+            JWT_SECRET=jwt-secret-vitall-production-2026-devsecops
+            STRIPE_SECRET_KEY=dummy
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=dummy
+            STRIPE_WEBHOOK_SECRET=dummy
+            GRAFANA_USER=admin
+            GRAFANA_PASSWORD=vitall-grafana-2026
+            EOF
+            sed -i 's/^            //' .env
+
+            echo "🐳 Pull de la dernière image..."
+            docker pull ghcr.io/yahlex/devsecops-vitall:latest
+
+            echo "🚀 Démarrage des services..."
+            docker compose -f docker-compose.prod.yml up -d
+
+            echo "🧹 Nettoyage des anciennes images..."
+            docker image prune -f
+
+            echo "✅ Déploiement terminé !"
+            docker compose -f docker-compose.prod.yml ps
