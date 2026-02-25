@@ -106,9 +106,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ---- Job 6 : Build de l'image Docker & push sur GHCR ----
+  # ---- Job 6 : Build Docker, scan Trivy, puis push sur GHCR ----
   build:
-    name: 🐳 Build & Push Docker
+    name: 🐳 Build, Scan & Push Docker
     runs-on: ubuntu-latest
     needs: [lint, test, sonarqube, sca, secrets-scan] # On build seulement si tout passe
     permissions:
@@ -128,11 +128,31 @@ jobs:
       - name: Mettre le nom du repo en minuscule
         run: echo "REPO_SLUG=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
-      - name: Build et push de l'image
+      # On build l'image en local d'abord (sans push) pour la scanner
+      - name: Build de l'image Docker (local)
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: ${{ github.ref == 'refs/heads/main' }}
+          load: true
+          tags: ${{ env.REPO_SLUG }}:scan
+
+      # Scan de l'image avec Trivy — bloque si vulnérabilités CRITICAL
+      - name: Scan Trivy de l'image Docker
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REPO_SLUG }}:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+          ignore-unfixed: true
+
+      # Si le scan passe, on pousse l'image sur GHCR
+      - name: Push de l'image sur GHCR
+        if: github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
           tags: |
             ghcr.io/${{ env.REPO_SLUG }}:latest
             ghcr.io/${{ env.REPO_SLUG }}:${{ github.sha }}
