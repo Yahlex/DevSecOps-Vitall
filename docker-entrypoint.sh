@@ -17,7 +17,8 @@ else
   echo "🌍 Mode PRODUCTION activé"
   
   echo "🔄 1/2 - Mise à jour de la base de données (Prisma)..."
-  prisma db push --accept-data-loss
+  # --skip-generate car le client Prisma est déjà généré au build
+  prisma db push --accept-data-loss --skip-generate
   
   echo "🚀 2/2 - Démarrage du serveur optimisé..."
   exec node server.js
