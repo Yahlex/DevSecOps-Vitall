@@ -1,881 +1,293 @@
-# Architecture du Projet Vitall
+# 🏥 Vitall Solution
 
-> **Plateforme modulaire pour les services institutionnels** (Pompiers, Police, Hôpitaux, etc.)
->
-> Projet de développement d'une suite d'applications modulaires destinée aux services d'intervention.
-> Premier module développé : **Recrutement des pompiers volontaires**.
+> Plateforme SaaS modulaire pour les services institutionnels (Pompiers, Police, Hôpitaux).  
+> Projet industrialisé dans le cadre de l'évaluation **DevSecOps — M2 DFS 2025/2026**.
+
+| | URL |
+|---|---|
+| 🌐 **Application** | https://vitall.alexis.remy.mds-nantes.fr |
+| 📊 **Grafana** | https://grafana-vitall.alexis.remy.mds-nantes.fr |
+| 🔍 **SonarQube** | https://sonarqube.alexis.remy.mds-nantes.fr |
+| 📦 **Registry** | ghcr.io/yahlex/devsecops-vitall |
 
 ---
 
-## Table des matières
+## 📑 Table des matières
 
 - [Stack technique](#-stack-technique)
-- [Structure du projet](#-structure-du-projet)
-- [Installation & Démarrage](#-installation--démarrage)
+- [Démarrage rapide](#-démarrage-rapide)
 - [Docker](#-docker)
-- [Observabilité & Monitoring](#-observabilité--monitoring)
 - [Pipeline CI/CD](#-pipeline-cicd)
-- [Sécurité & DevSecOps](#-sécurité--devsecops)
-- [Authentification](#-authentification)
-- [Modules fonctionnels](#-modules-fonctionnels)
-- [Base de données](#-base-de-données)
+- [Sécurité DevSecOps](#-sécurité-devsecops)
+- [Observabilité](#-observabilité)
+- [Infrastructure de production](#-infrastructure-de-production)
 - [Variables d'environnement](#-variables-denvironnement)
-- [Comptes de test](#-comptes-de-test)
-- [Design System & Figma](#-design-system--figma)
 - [Scripts utiles](#-scripts-utiles)
-- [Résolution de problèmes](#-résolution-de-problèmes)
 
-> 📐 **Document d'architecture détaillé** : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> 📐 **Architecture détaillée** → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+> 📝 **Explication de la démarche** → [docs/explications.md](docs/explications.md)  
+> 📸 **Preuves de validation** → [docs/evidence/](docs/evidence/)
 
 ---
 
 ## 🧩 Stack technique
 
-| Domaine               | Technologie                                              |
-| --------------------- | -------------------------------------------------------- |
-| **Framework**         | Next.js 16 (App Router + Turbopack)                      |
-| **Langage**           | TypeScript + React 19                                    |
-| **Style**             | TailwindCSS v4 + Design system Figma                     |
-| **UI Components**     | shadcn/ui                                                |
-| **Auth**              | JWT (jose) + bcrypt, middleware Next.js                   |
-| **Base de données**   | PostgreSQL 16 + Prisma ORM                               |
-| **Paiement**          | Stripe (Checkout + Webhooks)                              |
-| **Tests**             | Vitest + Testing Library                                  |
-| **CI/CD**             | GitHub Actions                                            |
-| **Qualité de code**   | ESLint + SonarQube                                        |
-| **Sécurité**          | Trivy (Container Scan)                                    |
-| **Observabilité**     | Prometheus + Grafana + Loki (prom-client)                |
-| **Conteneurisation**  | Docker (multi-stage, Alpine Linux)                        |
-| **Déploiement**       | VPS Infomaniak via SSH + Docker Compose                   |
+| Domaine | Technologie |
+|---------|-------------|
+| **Framework** | Next.js 16 (App Router) + React 19 + TypeScript |
+| **Base de données** | PostgreSQL 16 + Prisma ORM 6 |
+| **Auth** | JWT (jose) + bcrypt + middleware RBAC |
+| **Tests** | Vitest (35 tests unitaires) |
+| **CI/CD** | GitHub Actions (7 jobs) |
+| **SAST** | SonarQube (self-hosted) |
+| **SCA** | npm audit |
+| **Container Scan** | Trivy (Aqua Security) |
+| **Secret Scan** | Gitleaks |
+| **Conteneurisation** | Docker multi-stage (Alpine) |
+| **Monitoring** | Prometheus + Grafana + Loki + Promtail |
+| **Reverse Proxy** | Nginx Proxy Manager + Let's Encrypt |
+| **Hébergement** | VPS Infomaniak (Ubuntu 24.04) |
 
 ---
 
-## 📁 Structure du projet
-
-```
-vitall-solution/
-├── .github/workflows/      # Pipeline CI/CD (GitHub Actions)
-│   └── ci.yml
-├── prisma/                  # Schéma BDD, migrations et seed
-│   ├── schema.prisma
-│   ├── seed.ts
-│   └── migrations/
-├── public/                  # Assets statiques (fonts, images, icônes)
-├── scripts/                 # Scripts utilitaires (création comptes de test)
-├── src/
-│   ├── app/                 # Routes Next.js (App Router)
-│   │   ├── layout.tsx       # Layout racine
-│   │   ├── page.tsx         # Page d'accueil
-│   │   ├── login/           # Page de connexion
-│   │   ├── account-setup/   # Flux d'inscription + paiement Stripe
-│   │   ├── onboarding/      # Onboarding utilisateur
-│   │   ├── admin/           # Dashboard Admin (RBAC)
-│   │   ├── dashboard/       # Dashboard Utilisateur
-│   │   ├── mentions-legales/
-│   │   └── api/             # Routes API
-│   │       ├── auth/        # Login, Logout, Auto-login
-│   │       ├── stripe/      # Checkout, Webhook, Session
-│   │       ├── health/      # Health check
-│   │       └── account-setup/
-│   ├── components/          # Composants UI (Design System)
-│   │   ├── ui/              # Composants shadcn/ui
-│   │   ├── onboarding/      # Composants d'onboarding
-│   │   └── icons/           # Icônes custom
-│   ├── context/             # React Contexts (AuthContext)
-│   ├── hooks/               # Hooks React custom
-│   ├── lib/                 # Clients & utilitaires (prisma, auth, utils)
-│   ├── types/               # Types TypeScript globaux
-│   └── __tests__/           # Tests unitaires
-├── Dockerfile               # Image de production (multi-stage, Alpine)
-├── Dockerfile.dev           # Image de développement
-├── docker-compose.yml       # Orchestration production
-├── compose.override.yml     # Surcharge développement
-├── docker-entrypoint.sh     # Script de démarrage (migrations + serveur)
-├── package.json
-├── tsconfig.json
-├── vitest.config.ts
-├── eslint.config.mjs
-├── postcss.config.mjs
-└── sonar-project.properties
-```
-
----
-
-## 🚀 Installation & Démarrage
-
-### Prérequis
-
-- Node.js 20+
-- npm
-- Docker & Docker Compose (pour l'environnement conteneurisé)
-
-### Développement local (sans Docker)
+## 🚀 Démarrage rapide
 
 ```bash
-# 1. Cloner le dépôt
-git clone <url-du-repo>
+# Cloner et configurer
+git clone https://github.com/Yahlex/DevSecOps-Vitall.git
 cd vitall-solution
+cp .env.example .env   # Remplir les variables
 
-# 2. Configurer l'environnement
-cp .env.example .env
-# Remplir les variables (voir section "Variables d'environnement")
-
-# 3. Installer les dépendances
+# Option 1 : Développement local
 npm install
+npx prisma generate && npx prisma db push
+npm run dev             # → http://localhost:3000
 
-# 4. Générer le client Prisma et appliquer le schéma
-npx prisma generate
-npx prisma db push
-
-# 5. (Optionnel) Seed de la base de données
-npx tsx prisma/seed.ts
-
-# 6. Lancer le serveur de développement
-npm run dev
-# → http://localhost:3000
+# Option 2 : Docker
+docker compose up -d    # PostgreSQL + App + Monitoring
 ```
 
 ---
 
 ## 🐳 Docker
 
-### Architecture des images
-
-Le projet utilise un **build Docker multi-stage** pour optimiser la taille et la sécurité de l'image de production :
-
-| Stage       | Image de base      | Rôle                                                                 |
-| ----------- | ------------------ | -------------------------------------------------------------------- |
-| **Builder** | `node:20-alpine`   | Installe les dépendances, compile le projet Next.js en mode standalone |
-| **Runner**  | `node:20-alpine`   | Image finale légère, contient uniquement le build et Prisma CLI        |
-
-**Choix d'Alpine Linux** : Contrairement à `node:20-slim` (Debian), Alpine présente **0 vulnérabilité critique** selon les scans Snyk. L'image est aussi significativement plus légère.
-
-**Suppression de npm en production** : `npm` est supprimé de l'image finale pour éliminer sa surface d'attaque (vulnérabilités dans `cross-spawn`, `glob`, `minimatch`, `tar`). Seul le binaire `prisma` est conservé pour exécuter les migrations au démarrage.
-
-### Démarrage rapide avec Docker
-
-```bash
-# 1. Configurer l'environnement
-cp .env.example .env
-# Remplir les variables Stripe
-
-# 2. Lancer l'application (PostgreSQL + App)
-docker compose up -d
-
-# 3. Voir les logs
-docker compose logs -f
-
-# 4. Accéder à l'application
-# → http://localhost:3000
-
-# 5. Arrêter
-docker compose down
-```
-
-### Développement avec Docker
-
-Le fichier `compose.override.yml` surcharge automatiquement la config en mode développement :
-
-```bash
-# Lancer en mode dev (hot reload, volumes montés)
-docker compose up -d
-# Les fichiers locaux sont synchronisés via bind mount
-```
-
-### Commandes Docker utiles
-
-```bash
-# Rebuild après modification de code
-docker compose up -d --build
-
-# Entrer dans le conteneur
-docker compose exec app sh
-
-# Accéder à PostgreSQL
-docker compose exec postgres psql -U vitall_user -d vitall_db
-
-# Backup de la base
-docker compose exec postgres pg_dump -U vitall_user vitall_db > backup.sql
-
-# Restaurer
-docker compose exec -T postgres psql -U vitall_user vitall_db < backup.sql
-
-# Nettoyage complet (⚠️ perte de données)
-docker compose down -v && docker system prune -a
-```
-
----
-
-## 📊 Observabilité & Monitoring
-
-Le projet intègre une stack complète d'observabilité basée sur **Prometheus**, **Grafana** et **Loki** pour monitorer les performances applicatives et conteneurs.
-
-### Architecture de monitoring
+### Build multi-stage
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Stack d'Observabilité                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌──────────┐    scrape     ┌────────────┐                            │
-│  │ Next.js  │──────────────>│            │                            │
-│  │ App      │  /api/metrics │ Prometheus │──────┐                     │
-│  │ :3000    │               │ :9090      │      │                     │
-│  └──────────┘               └────────────┘      │                     │
-│                                                  │ push                │
-│  ┌──────────┐    scrape     ┌────────────┐      ▼                     │
-│  │ cAdvisor │──────────────>│  Grafana   │                            │
-│  │ :8080    │  /metrics     │  :3001     │                            │
-│  │          │               │            │                            │
-│  │(Docker   │               │ Dashboard  │                            │
-│  │ metrics) │               │ & Viz      │                            │
-│  └──────────┘               └────────────┘                            │
-│                                    ▲                                   │
-│  ┌──────────┐    push        ┌────┴────┐                              │
-│  │ Promtail │───────────────>│  Loki   │                              │
-│  │          │    logs        │  :3100  │                              │
-│  │(Docker   │                │         │                              │
-│  │ logs)    │                │ Log     │                              │
-│  └──────────┘                │ Storage │                              │
-│                               └─────────┘                              │
-└─────────────────────────────────────────────────────────────────────────┘
+Stage 1 (Builder)  → node:20-alpine → npm ci → prisma generate → npm run build
+Stage 2 (Runner)   → node:20-alpine → standalone output → npm supprimé → user nextjs (UID 1001)
 ```
 
-### Services de monitoring
+**Mesures de sécurité du Dockerfile :**
+- Image Alpine (surface d'attaque minimale)
+- npm supprimé en production (élimine les CVE de `cross-spawn`, `glob`, `tar`)
+- Utilisateur non-root `nextjs` (UID 1001)
+- Seul le strict nécessaire est copié (mode `standalone`)
 
-| Service      | Port | Description                                          |
-| ------------ | ---- | ---------------------------------------------------- |
-| **Prometheus** | 9090 | Collecte et stockage des métriques time-series      |
-| **Grafana**    | 3001 | Visualisation de métriques et logs                  |
-| **Loki**       | 3100 | Agrégation et stockage des logs                     |
-| **Promtail**   | -    | Agent de collecte des logs Docker                   |
+### Fichiers compose
 
-### Métriques exposées
-
-L'application Next.js expose ses propres métriques via `/api/metrics` (via `prom-client`) :
-
-#### Métriques applicatives & Processus
-- `app_uptime_seconds` : Temps depuis le démarrage de l'application
-- `http_requests_total` : Nombre total de requêtes HTTP (par méthode, route, status)
-- `http_request_duration_seconds` : Latence des requêtes HTTP (histogramme)
-- `process_cpu_usage_percent` : Usage CPU du processus Node.js
-- `process_resident_memory_bytes` : Usage mémoire RAM réelle du processus
-- `process_heap_bytes` : Taille du tas (heap) Node.js
-
-### Démarrage de la stack de monitoring
-
-```bash
-# 1. Assurez-vous que les fichiers de config sont présents
-ls prometheus.yml loki-config.yml promtail-config.yml
-ls -R grafana/
-
-# 2. Lancer tous les services (app + monitoring)
-docker compose up -d
-
-# 3. Vérifier que tous les services sont UP
-docker compose ps
-
-# 4. Attendre quelques secondes pour l'initialisation
-sleep 15
-```
-
-### Accès aux interfaces
-
-| Interface       | URL                     | Credentials          |
-| --------------- | ----------------------- | -------------------- |
-| **Application** | http://localhost:3000   | (voir section Comptes de test) |
-| **Grafana**     | http://localhost:3001   | `admin` / `admin`    |
-| **Prometheus**  | http://localhost:9090   | Pas d'auth           |
-
-### Visualiser les métriques dans Grafana
-
-1. **Accéder à Grafana**
-   ```bash
-   open http://localhost:3001
-   # Login: admin / admin
-   ```
-
-2. **Dashboard pré-configuré**
-   - Allez dans **Dashboards** → **"Vitall Monitoring Dashboard V2"**
-   - Le dashboard affiche automatiquement :
-     - ✅ **Application Status** : Service vivant (UP/DOWN)
-     - 📈 **Application Uptime** : Temps depuis le démarrage
-     - 🖥️ **Application CPU Usage** : Utilisation CPU du processus %
-     - 💾 **Application Memory Usage** : Utilisation RAM du processus
-     - 🌐 **HTTP Requests Rate** : Requêtes/seconde par endpoint
-     - ⏱️ **HTTP Request Duration** : Latence P95 & P99
-     - 📋 **Application Logs** : Logs en temps réel
-
-3. **Générer du trafic pour visualiser les métriques**
-   ```bash
-   # Générer 100 requêtes HTTP sur le healthcheck instrumenté
-   for i in {1..100}; do curl -s http://localhost:3000/api/health > /dev/null; done
-
-   # Observer les métriques dans Grafana
-3. Utilisez ces requêtes LogQL :
-
-```logql
-# Tous les logs de l'application
-{container_name=~".*vitall.*app.*"}
-
-# Logs avec filtrage par niveau (si structurés)
-{container_name=~".*vitall.*app.*"} |= "error"
-
-# Logs des 5 dernières minutes
-{container_name=~".*vitall.*app.*"} [5m]
-
-# Comptage d'erreurs
-count_over_time({container_name=~".*vitall.*app.*"} |= "error" [5m])
-```
-
-### Requêtes Prometheus utiles
-
-Accédez à http://localhost:9090/graph et testez :
-
-```promql
-# Vérifier que l'app est UP
-up{job="vitall-app"}
-
-# Uptime en heures
-app_uptime_seconds / 3600
-
-# Requêtes HTTP par seconde (moyenne 5 min)
-rate(http_requests_total[5m])
-
-# Latence P95
-histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
-
-# Usage CPU du conteneur (en %)
-rate(container_cpu_usage_seconds_total{name=~".*vitall.*app.*"}[5m]) * 100
-
-# Usage mémoire du conteneur (en MB)
-container_memory_usage_bytes{name=~".*vitall.*app.*"} / 1024 / 1024
-
-# Trafic réseau entrant (KB/s)
-rate(container_network_receive_bytes_total{name=~".*vitall.*app.*"}[5m]) / 1024
-```
-
-### Configuration des alertes (optionnel)
-
-Pour configurer des alertes Prometheus :
-
-1. Créer un fichier `prometheus-alerts.yml` :
-   ```yaml
-   groups:
-     - name: vitall-alerts
-       interval: 30s
-       rules:
-         - alert: ServiceDown
-           expr: up{job="vitall-app"} == 0
-           for: 1m
-           labels:
-             severity: critical
-           annotations:
-             summary: "Service Vitall is down"
-         
-         - alert: HighMemoryUsage
-           expr: container_memory_usage_bytes{name=~".*vitall.*app.*"} > 500000000
-           for: 5m
-           labels:
-             severity: warning
-           annotations:
-             summary: "Memory usage > 500MB"
-   ```
-
-2. Ajouter dans `prometheus.yml` :
-   ```yaml
-   rule_files:
-     - "prometheus-alerts.yml"
-   ```
-
-3. Redémarrer Prometheus :
-   ```bash
-   docker compose restart prometheus
-   ```
-
-### Rétention des données
-
-| Service      | Rétention | Configuration                          |
-| ------------ | --------- | -------------------------------------- |
-| **Prometheus** | 15 jours  | `--storage.tsdb.retention.time=15d`   |
-| **Loki**       | 7 jours   | `retention_period: 168h` dans loki-config.yml |
-
-### Troubleshooting
-
-**Prometheus ne scrape pas les métriques de l'app**
-```bash
-# Vérifier que l'endpoint répond
-curl http://localhost:3000/api/metrics
-
-# Vérifier les targets dans Prometheus
-open http://localhost:9090/targets
-# → Toutes les targets doivent être "UP"
-```
-
-**Grafana ne se connecte pas aux datasources**
-```bash
-# Vérifier la connectivité réseau
-docker compose exec grafana wget -O- http://prometheus:9090/-/healthy
-docker compose exec grafana wget -O- http://loki:3100/ready
-
-# Redémarrer Grafana
-docker compose restart grafana
-```
-
-**Pas de logs dans Loki**
-```bash
-# Vérifier que Promtail collecte bien les logs
-docker compose logs promtail | grep "successfully"
-
-# Vérifier les labels dans Loki
-# Dans Grafana Explore: {container_name!=""}
-```
-
-**Dashboard Grafana vide**
-```bash
-# Attendre que les métriques soient scrapées (15-30 secondes)
-# Générer du trafic artificiel
-for i in {1..50}; do curl -s http://localhost:3000/api/health > /dev/null; done
-
-# Ajuster la fenêtre temporelle dans Grafana (top-right) à "Last 5 minutes"
-```
+| Fichier | Usage |
+|---------|-------|
+| `docker-compose.yml` | Développement local (PostgreSQL + App) |
+| `compose.override.yml` | Surcharge dev (hot reload, volumes) |
+| `docker-compose.prod.yml` | **Production** — utilisé pour le déploiement VPS |
 
 ---
 
 ## ⚙️ Pipeline CI/CD
 
-Le pipeline GitHub Actions (`.github/workflows/ci.yml`) est déclenché à chaque push ou pull request sur `main`.
-
-### Schéma du pipeline
+Fichier : `.github/workflows/ci.yml` — Déclenché sur chaque **push** et **pull request** vers `main`.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│                              Push sur main                                                  │
-└───────────────────────────────────┬─────────────────────────────────────────────────────────┘
-                                    │
-        ┌───────────────┬───────────┼───────────┬──────────────┐
-        ▼               ▼           ▼           ▼              ▼
- ┌──────────┐   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
- │ 🔍 Lint  │   │ 🧪 Tests │  │ SonarQube│  │ npm audit│  │ Gitleaks │
- │ ESLint   │   │ Vitest   │  │  (SAST)  │  │  (SCA)   │  │ Secrets  │
- └────┬─────┘   └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
-      │              │             │              │             │
-      └──────────────┴──────┬──────┴──────────────┴─────────────┘
-                            │ Tout doit passer ✅
-                            ▼
-              ┌──────────────────────────┐
-              │ 🐳 Build Docker + Trivy  │
-              │ Scan (CRITICAL) → GHCR   │
-              └────────────┬─────────────┘
-                           │
-                           ▼
-              ┌──────────────────────────┐
-              │ 🚀 Deploy to VPS (SSH)   │
-              │ SCP configs + compose up │
-              └──────────────────────────┘
+                              Push / PR sur main
+                                     │
+          ┌──────────┬───────────┬───┴───┬───────────┬──────────┐
+          ▼          ▼           ▼       ▼           ▼          │
+      ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐   │
+      │  Lint  │ │ Tests  │ │ Sonar  │ │  SCA   │ │Gitleaks│   │  Phase 1
+      │ ESLint │ │ Vitest │ │ (SAST) │ │  npm   │ │Secrets │   │  (parallèle)
+      └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘   │
+          └──────────┴──────┬───┴──────────┴──────────┘         │
+                            │ ✅ Tout doit passer                │
+                            ▼                                    │
+                  ┌──────────────────┐                           │  Phase 2
+                  │ Build + Trivy    │                           │
+                  │ Scan → Push GHCR │                           │
+                  └────────┬─────────┘                           │
+                           │                                     │
+                           ▼                                     │
+                  ┌──────────────────┐                           │  Phase 3
+                  │ Deploy to VPS    │  (main uniquement)        │
+                  │ SSH + SCP        │                           │
+                  └──────────────────┘                           │
 ```
 
-### Jobs détaillés
+### Détail des 7 jobs
 
-#### 1. Lint (`lint`)
-- ESLint avec TypeScript — vérifie le style et les bonnes pratiques
-
-#### 2. Tests unitaires (`test`)
-- 35 tests via Vitest (auth, middleware, API, utils)
-
-#### 3. SonarQube SAST (`sonarqube`)
-- Analyse statique : bugs, vulnérabilités, code smells, couverture
-
-#### 4. npm audit SCA (`sca`)
-- Audit des dépendances — bloque si vulnérabilité **high** ou **critical**
-
-#### 5. Gitleaks (`secrets-scan`)
-- Analyse de tout l'historique Git pour détecter des secrets (clés API, mots de passe)
-
-#### 6. Build, Scan & Push (`build`)
-1. Build local de l'image Docker (multi-stage, sans push)
-2. **Scan Trivy** — bloque si vulnérabilités **CRITICAL** (ignore-unfixed)
-3. Push sur `ghcr.io` si le scan passe (`latest` + tag SHA)
-
-#### 7. Déploiement (`deploy`)
-- Uniquement sur la branche `main`
-- SCP des fichiers de config + SSH pour `docker compose up -d`
+| # | Job | Outil | Rôle | Bloquant si |
+|---|-----|-------|------|-------------|
+| 1 | `lint` | ESLint | Qualité de code TypeScript/React | Erreurs de lint |
+| 2 | `test` | Vitest | 35 tests unitaires | Test échoué |
+| 3 | `sonarqube` | SonarQube | SAST — bugs, vulnérabilités, code smells | Quality Gate échoué |
+| 4 | `sca` | npm audit | Audit des dépendances (Supply Chain) | Vulnérabilité high/critical |
+| 5 | `secrets-scan` | Gitleaks | Scan de l'historique Git complet | Secret détecté |
+| 6 | `build` | Docker + Trivy | Build image → scan CRITICAL → push GHCR | Vulnérabilité CRITICAL |
+| 7 | `deploy` | SSH/SCP | Déploiement automatique sur le VPS | — |
 
 ### Secrets GitHub requis
 
-| Secret                    | Description                                |
-| ------------------------- | ------------------------------------------ |
-| `SONAR_TOKEN`             | Token d'authentification SonarQube         |
-| `SONAR_HOST_URL`          | URL du serveur SonarQube                   |
-| `VPS_HOST`                | Adresse IP du VPS                          |
-| `VPS_USER`                | Utilisateur SSH du VPS                     |
-| `VPS_SSH_KEY`             | Clé privée SSH (Ed25519)                   |
-| `GITHUB_TOKEN`            | Fourni automatiquement par GitHub          |
+| Secret | Description |
+|--------|-------------|
+| `SONAR_TOKEN` | Token SonarQube |
+| `SONAR_HOST_URL` | URL du serveur SonarQube |
+| `VPS_HOST` | Adresse IP du VPS |
+| `VPS_USER` | Utilisateur SSH |
+| `VPS_SSH_KEY` | Clé privée SSH (Ed25519) |
 
 ---
 
-## 🛡️ Sécurité & DevSecOps
+## 🛡️ Sécurité DevSecOps
 
-### Pourquoi Trivy pour le Container Scanning ?
+### Principe : Shift Left
 
-Dans le cadre de notre démarche **DevSecOps**, nous avons intégré **Trivy** (par Aqua Security) comme scanner de vulnérabilités pour nos images Docker :
+La sécurité est intégrée à **chaque étape** du pipeline, pas seulement en fin de chaîne :
 
-1. **Open Source & Gratuit** : Contrairement à Snyk (freemium), Trivy est 100% open source et intégré nativement dans les écosystèmes CI/CD.
-2. **Analyse complète** : Trivy scanne les vulnérabilités OS (Alpine packages) et applicatives (dépendances npm) en une seule passe.
-3. **Filtrage par sévérité** : Notre pipeline est configuré avec `severity: CRITICAL` et `ignore-unfixed: true` pour ne bloquer que sur les vulnérabilités critiques ayant un correctif disponible.
-4. **Rapidité** : Le scan s'exécute en quelques secondes grâce à sa base de données locale de vulnérabilités.
+```
+Code → Lint → Tests → SAST → SCA → Secrets → Build → Container Scan → Deploy
+                       ↑      ↑       ↑                    ↑
+                      code   deps   leaks                 image
+```
 
-### Pourquoi Gitleaks pour la Détection de Secrets ?
+### Mesures appliquées
 
-En complément du scan de conteneur, nous utilisons **Gitleaks** pour prévenir la fuite de données sensibles. Cet outil :
-1. **Analyse l'historique complet** : Il ne se contente pas de scanner le dernier commit, mais parcourt tout l'historique Git pour détecter des secrets précédemment validés.
-2. **Détection par signatures** : Il utilise des expressions régulières avancées pour identifier des formats spécifiques (clés AWS, Stripe, tokens GitHub, etc.).
-3. **Bloquant par défaut** : Si un secret est détecté, le pipeline échoue immédiatement, forçant le développeur à révoquer la clé et à nettoyer l'historique Git.
-
-Cette intégration applique le principe du **"Shift Left Security"** : la sécurité est vérifiée dès l'étape de build ou de code, avant même que l'image ne soit poussée sur le registre ou déployée en production.
-
-### Mesures de sécurité appliquées
-
-| Mesure                        | Détail                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------- |
-| **Image de base Alpine**      | `node:20-alpine` — 0 vulnérabilité critique (vs 41 pour `node:20-slim`)  |
-| **npm supprimé en production**| Élimine les vulnérabilités de `cross-spawn`, `glob`, `minimatch`, `tar`   |
-| **Scan de conteneur (Trivy)** | Bloque les vulnérabilités système et applicatives CRITICAL                |
-| **Détection secrets (Gitleaks)**| Empêche le commit de clés API ou mots de passe dans le repo             |
-| **Qualité code (SonarQube)**  | Détecte les vulnérabilités logiques et les mauvais patterns de code       |
-| **Utilisateur non-root**      | Le conteneur tourne sous l'utilisateur `nextjs` (UID 1001)                |
-| **Build multi-stage**         | L'image finale ne contient que le strict nécessaire (standalone)           |
-| **JWT httpOnly**              | Les tokens sont stockés dans des cookies httpOnly, secure en production    |
-| **Mots de passe hashés**      | bcrypt avec 10 rounds de salage                                            |
-| **Middleware RBAC**           | Protection des routes par rôle (ADMIN / USER) dans le middleware Next.js   |
-
-### URLs de production
-
-| Service | URL |
-|---------|-----|
-| **Application** | https://vitall.alexis.remy.mds-nantes.fr |
-| **Grafana** | https://grafana-vitall.alexis.remy.mds-nantes.fr |
-| **SonarQube** | https://sonarqube.alexis.remy.mds-nantes.fr |
+| Couche | Mesure | Détail |
+|--------|--------|--------|
+| **Code** | SonarQube (SAST) | Analyse statique : bugs, vulnérabilités, code smells |
+| **Dépendances** | npm audit (SCA) | Bloque si vulnérabilité high ou critical |
+| **Secrets** | Gitleaks | Scan historique Git complet |
+| **Image** | Trivy | Scan de l'image Docker (sévérité CRITICAL) |
+| **Image** | Alpine + multi-stage | Surface d'attaque minimale, npm supprimé |
+| **Runtime** | Non-root | Conteneur sous utilisateur `nextjs` (UID 1001) |
+| **Auth** | JWT httpOnly + bcrypt | Cookies sécurisés, mots de passe hashés (10 rounds) |
+| **Routes** | Middleware RBAC | Protection par rôle (ADMIN/USER) |
+| **Transport** | HTTPS (Let's Encrypt) | Certificats SSL automatiques via Nginx Proxy Manager |
 
 ---
 
-## 🔐 Authentification
+## 📊 Observabilité
 
-### Flux de création de compte (via paiement Stripe)
-
-```
-/account-setup (3 étapes : infos, modules, récapitulatif)
-    ↓
-POST /api/stripe/checkout → session Stripe Checkout
-    ↓
-Paiement Stripe (mode test)
-    ↓
-POST /api/stripe/webhook → confirmation
-    ↓
-Prisma Transaction :
-  - Create Organization
-  - Create User (bcrypt hash)
-  - Create Subscription + Modules
-    ↓
-/account-setup/success → Auto-login (JWT)
-    ↓
-Redirection → /admin
-```
-
-### Flux de connexion
+### Architecture de monitoring
 
 ```
-/login (formulaire email + mot de passe)
-    ↓
-POST /api/auth/login
-  - bcrypt.compare(password, hash)
-  - SignJWT (userId, email, role, organizationId)
-  - Set cookie auth-token (httpOnly, 7 jours)
-    ↓
-Redirection selon le rôle :
-  - ADMIN → /admin
-  - USER  → /dashboard
+Next.js App ─── /api/metrics ───→ Prometheus ───→ Grafana (dashboards)
+     │                                                ↑
+     └─── docker logs ───→ Promtail ───→ Loki ───────┘
 ```
 
-### Rôles et permissions
+### Métriques exposées (prom-client)
 
-| Fonctionnalité             | ADMIN | USER |
-| -------------------------- | ----- | ---- |
-| Accès `/admin`             | ✅     | ❌    |
-| Accès `/dashboard`         | ✅     | ✅    |
-| Gestion organisation       | ✅     | ❌    |
-| Gestion modules            | ✅     | ❌    |
-| Gestion utilisateurs       | ✅     | ❌    |
-| Consultation profil        | ✅     | ✅    |
-| Notifications              | ✅     | ✅    |
+| Métrique | Type | Description |
+|----------|------|-------------|
+| `app_uptime_seconds` | Gauge | Uptime de l'application |
+| `http_requests_total` | Counter | Requêtes HTTP (méthode/route/status) |
+| `http_request_duration_seconds` | Histogram | Latence (P50, P95, P99) |
+| `process_cpu_usage_percent` | Gauge | CPU du processus Node.js |
+| `process_resident_memory_bytes` | Gauge | Mémoire RSS |
 
-### Protection des routes (middleware)
+### Dashboard Grafana
 
-| Route              | Règle                                         |
-| ------------------ | --------------------------------------------- |
-| `/login`           | Publique                                      |
-| `/account-setup`   | Publique                                      |
-| `/mentions-legales`| Publique                                      |
-| `/api/stripe/webhook` | Publique (vérifié par signature Stripe)    |
-| `/admin/*`         | JWT valide + rôle `ADMIN`                     |
-| `/dashboard/*`     | JWT valide (USER ou ADMIN)                    |
+Le dashboard **"Vitall Monitoring Dashboard V2"** est auto-provisionné et affiche :
+- Status UP/DOWN de l'application
+- Uptime, CPU, mémoire
+- Taux de requêtes HTTP et latences
+- Logs en temps réel (via Loki)
 
-### Déconnexion
+### Accès local
 
-`POST /api/auth/logout` → Suppression du cookie `auth-token` → Redirection `/login`
+| Service | URL | Identifiants |
+|---------|-----|-------------|
+| Application | http://localhost:3000 | — |
+| Grafana | http://localhost:3001 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
 
 ---
 
-## 📦 Modules fonctionnels
+## 🏗️ Infrastructure de production
 
-L'application suit une architecture **modulaire** : chaque module est indépendant mais partage l'authentification et la base de données.
+### VPS Infomaniak (Ubuntu 24.04)
 
-### Modules disponibles
+| Composant | Détail |
+|-----------|--------|
+| **Reverse proxy** | Nginx Proxy Manager (HTTPS automatique) |
+| **Réseau `public`** | App + Grafana (exposés via NPM) |
+| **Réseau `backend`** | App + PostgreSQL (isolé) |
+| **Réseau `monitoring`** | App + Prometheus + Grafana + Loki + Promtail |
 
-| Catégorie       | Module           | Prix/mois |
-| --------------- | ---------------- | --------- |
-| **Base**        | Pack de base     | 270 €     |
-| **RH**          | Recrutement      | 90 €      |
-|                 | Paie             | 70 €      |
-|                 | Planning         | 65 €      |
-|                 | Congés           | 50 €      |
-|                 | Signature        | 50 €      |
-|                 | Formation        | 40 €      |
-|                 | Employés         | 25 €      |
-|                 | Entretien        | 20 €      |
-| **Communication** | Rendez-vous    | 40 €      |
-|                 | Email marketing  | 15 €      |
-|                 | Chat interne     | 15 €      |
-| **Gestion**     | Compta           | 60 €      |
-|                 | Flottes          | 50 €      |
-|                 | Matériel         | 45 €      |
-|                 | Note de frais    | 32,90 €   |
+### Services déployés
 
-### Modules prévus (roadmap)
+| Service | Image | Volumes |
+|---------|-------|---------|
+| PostgreSQL | `postgres:16-alpine` | `postgres_data` (persistant) |
+| App | `ghcr.io/yahlex/devsecops-vitall` | — |
+| Prometheus | `prom/prometheus` | `prometheus_data` (rétention 15j) |
+| Grafana | `grafana/grafana` | `grafana_data` + provisioning |
+| Loki | `grafana/loki` | `loki_data` (rétention 7j) |
+| Promtail | `grafana/promtail` | Docker socket (read-only) |
 
-- **Intervention** — planification et suivi des missions
-- **Administration** — gestion interne, statistiques et documents
-
----
-
-## 🗄️ Base de données
-
-### Technologie
-
-- **PostgreSQL 16** (Alpine) via Docker
-- **Prisma ORM** pour les requêtes et migrations
-
-### Modèles principaux
-
-| Modèle                | Description                                  |
-| --------------------- | -------------------------------------------- |
-| `User`                | Utilisateurs (email, password, rôle)         |
-| `Organization`        | Organisations clientes                       |
-| `Subscription`        | Abonnement lié à une organisation            |
-| `SubscriptionModule`  | Modules activés par abonnement               |
-| `Module`              | Catalogue des modules disponibles            |
-| `Candidature`         | Candidatures de recrutement                  |
-| `Notification`        | Notifications utilisateur                    |
-
-### Enums
-
-- `UserRole` : `ADMIN`, `USER`
-- `SubscriptionStatus` : `ACTIVE`, `INACTIVE`, `PENDING`, `CANCELLED`
-- `CandidatureStatus` : `PENDING`, `INTERVIEW`, `ACCEPTED`, `REJECTED`
-- `ShiftType` : `GARDE`, `ASTREINTE`, `FORMATION`, `REUNION`
-- `LeaveStatus` : `PENDING`, `APPROVED`, `REJECTED`
-
-### Commandes Prisma
+### Procédure de rollback
 
 ```bash
-npx prisma generate         # Générer le client
-npx prisma db push          # Appliquer le schéma sans migration
-npx prisma migrate dev      # Créer une migration
-npx prisma studio           # Interface web de la BDD
-npx tsx prisma/seed.ts      # Peupler la base (modules + comptes test)
+# Rollback vers une version précédente
+ssh ubuntu@<VPS_IP>
+cd ~/apps/vitall
+docker pull ghcr.io/yahlex/devsecops-vitall:<sha-du-commit>
+sed -i 's|:latest|:<sha-du-commit>|' docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml up -d app
+
+# Ou rollback via Git (le CI/CD redéploie automatiquement)
+git revert HEAD && git push
 ```
 
 ---
 
 ## 🔑 Variables d'environnement
 
-### Développement (`.env`)
+Copier `.env.example` et adapter les valeurs :
 
 ```env
-# Base de données
-DATABASE_URL="postgresql://vitall_user:vitall_password@localhost:5432/vitall_db?schema=public"
-
-# Authentification
-JWT_SECRET="dev-super-secret-jwt-key-change-in-production"
-
-# Stripe (mode test)
+DATABASE_URL="postgresql://user:password@localhost:5432/vitall_db?schema=public"
+JWT_SECRET="<valeur-aléatoire-32-caractères>"
 STRIPE_SECRET_KEY="sk_test_..."
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_..."
 STRIPE_WEBHOOK_SECRET="whsec_..."
-
-# Seed (comptes de test)
-SEED_ADMIN_PASSWORD="password123"
-SEED_USER_PASSWORD="user123"
-
-# Application
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-```
-
-### Production
-
-```env
-DATABASE_URL="postgresql://user:password@host:5432/vitall_db?schema=public"
-JWT_SECRET="<valeur-aléatoire-32-caractères-minimum>"
-STRIPE_SECRET_KEY="sk_live_..."
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_live_..."
-STRIPE_WEBHOOK_SECRET="whsec_..."
-SEED_ADMIN_PASSWORD="<mot-de-passe-fort-16-caractères>"
-SEED_USER_PASSWORD="<mot-de-passe-fort-16-caractères>"
-NEXT_PUBLIC_APP_URL="https://votre-domaine.fr"
 NODE_ENV="production"
 ```
 
-> ⚠️ Ne **JAMAIS** commiter le fichier `.env` avec des secrets réels. Utiliser les secrets GitHub Actions et les variables d'environnement Docker Compose en production.
-
----
-
-## 🧪 Comptes de test
-
-### Créer les comptes
-
-```bash
-# Compte ADMIN
-npx tsx scripts/create-test-user.ts
-
-# Compte USER
-npx tsx scripts/create-test-user-role-user.ts
-```
-
-### Identifiants
-
-| Rôle   | Email            | Mot de passe  | Accès                  |
-| ------ | ---------------- | ------------- | ---------------------- |
-| ADMIN  | `admin@test.fr`  | `password123` | `/admin` + `/dashboard`|
-| USER   | `user@test.fr`   | `user123`     | `/dashboard` uniquement|
-
-### Tester la protection des routes
-
-1. **ADMIN** : Connexion → redirection `/admin` → accès à toutes les pages
-2. **USER** : Connexion → redirection `/dashboard` → tentative `/admin` → redirigé vers `/dashboard`
-3. **Non authentifié** : Accès `/admin` ou `/dashboard` → redirigé vers `/login`
-
----
-
-## 🎨 Design System & Figma
-
-### Conventions
-
-- **UI Components** : Exclusivement **shadcn/ui**, dans `src/components/ui/`
-- **Design tokens** : Utiliser les classes Tailwind mappées (`bg-primary`, `text-neutral-900`, etc.)
-- **Polices** : Inter/system-ui (texte), Abadi MT Pro (titres)
-- **Couleurs** : Jamais d'hex inline — toujours utiliser les tokens Tailwind ou les variables CSS
-
-### Palette de couleurs
-
-- **Primaire** (orange) : `--color-primary-25` → `--color-primary-900`
-- **Secondaire** (bleu) : `--color-secondary-25` → `--color-secondary-900`
-
-### Workflow d'intégration Figma
-
-1. Identifier les composants dans la maquette Figma
-2. Mapper vers un composant shadcn/ui existant (`Button`, `Input`, `Card`, etc.)
-3. Si aucun équivalent : créer un wrapper Tailwind dans `src/components/ui/`
-4. Exporter via `src/components/ui/index.ts`
-5. Assembler la page/composant — aucune UI inline dans les pages
-
-### Conventions de nommage
-
-| Type                  | Exemple                       | Règle                          |
-| --------------------- | ----------------------------- | ------------------------------ |
-| Composant atomique    | `ButtonPrimary`, `InputField` | PascalCase                     |
-| Composant composé     | `LoginForm`, `SidebarMenu`    | Nom + rôle                     |
-| Composant métier      | `CandidateTable`              | Domaine + type                 |
-| Hook React            | `useRecruitmentData`          | camelCase, préfixe `use`       |
+> ⚠️ Ne **jamais** commiter `.env` avec des secrets réels. Utiliser les secrets GitHub Actions et le `.env` généré sur le VPS lors du déploiement.
 
 ---
 
 ## 📋 Scripts utiles
 
-| Commande                  | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `npm run dev`             | Serveur de développement (Turbopack)     |
-| `npm run build`           | Compilation pour la production           |
-| `npm run start`           | Lancer l'application compilée            |
-| `npm run test`            | Exécuter les tests unitaires (Vitest)    |
-| `npm run test:watch`      | Tests en mode watch                      |
-| `npm run lint`            | Vérification ESLint                      |
+| Commande | Description |
+|----------|-------------|
+| `npm run dev` | Serveur de développement (Turbopack) |
+| `npm run build` | Build de production |
+| `npm run test` | Tests unitaires (Vitest) |
+| `npm run lint` | Vérification ESLint |
+| `npx prisma studio` | Interface web de la BDD |
+| `npx prisma db push` | Appliquer le schéma Prisma |
 
 ---
 
-## 🆘 Résolution de problèmes
+## 📚 Documentation
 
-### `Cannot find module '../lightningcss.darwin-arm64.node'`
-
-Conflit d'architecture Mac M1/M2. Réinstaller proprement :
-
-```bash
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### `npm ci` échoue dans Docker
-
-Le `package-lock.json` est désynchronisé. Lancer `npm install` localement, puis commit le lockfile mis à jour.
-
-### Port 3000 déjà utilisé
-
-```bash
-lsof -i :3000
-kill -9 <PID>
-```
-
-### Base de données inaccessible
-
-```bash
-docker compose ps postgres
-docker compose logs postgres
-docker compose exec postgres pg_isready -U vitall_user
-```
-
-### Modifications non prises en compte dans Docker
-
-```bash
-docker compose build --no-cache
-docker compose up -d --force-recreate
-```
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Schéma du pipeline CI/CD et de l'infrastructure |
+| [docs/explications.md](docs/explications.md) | Explication de la démarche DevSecOps |
+| [docs/evidence/](docs/evidence/) | Captures d'écran de validation |
 
 ---
 
-## ✅ Checklist de mise en production
-
-- [ ] Changer `JWT_SECRET` par une valeur aléatoire sécurisée (32+ caractères)
-- [ ] Configurer Stripe en mode **production** (`sk_live_`, `pk_live_`)
-- [ ] Activer `secure: true` pour les cookies (HTTPS)
-- [ ] Désactiver ou changer les mots de passe des comptes de test
-- [ ] Configurer toutes les variables d'environnement de production
-- [ ] Tester le flow complet de paiement Stripe
-- [ ] Vérifier les redirections HTTPS
-- [ ] Activer les logs d'erreur (Sentry, etc.)
-- [ ] S'assurer que le scan Trivy passe en CI sans vulnérabilité CRITICAL
-- [ ] Vérifier le health check : `curl https://votre-domaine.fr/api/health`
-
----
-
-## 📚 Ressources
-
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Prisma Documentation](https://www.prisma.io/docs)
-- [shadcn/ui](https://ui.shadcn.com/)
-- [Stripe Documentation](https://stripe.com/docs)
-- [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
-- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
-- [SonarQube](https://docs.sonarqube.org/)
-
----
-
-*M2 Chef de Projet Digital — Option Fullstack — 2025/2026*
+*Alexis Remy — M2 DFS — Évaluation DevSecOps — 2025/2026*
