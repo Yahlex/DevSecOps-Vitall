@@ -25,6 +25,8 @@
 - [Scripts utiles](#-scripts-utiles)
 - [Résolution de problèmes](#-résolution-de-problèmes)
 
+> 📐 **Document d'architecture détaillé** : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
 ---
 
 ## 🧩 Stack technique
@@ -41,10 +43,10 @@
 | **Tests**             | Vitest + Testing Library                                  |
 | **CI/CD**             | GitHub Actions                                            |
 | **Qualité de code**   | ESLint + SonarQube                                        |
-| **Sécurité**          | Snyk (Container Scan)                                     |
+| **Sécurité**          | Trivy (Container Scan)                                    |
 | **Observabilité**     | Prometheus + Grafana + Loki (prom-client)                |
 | **Conteneurisation**  | Docker (multi-stage, Alpine Linux)                        |
-| **Déploiement**       | VPS via SSH (Dokploy)                                     |
+| **Déploiement**       | VPS Infomaniak via SSH + Docker Compose                   |
 
 ---
 
@@ -53,7 +55,7 @@
 ```
 vitall-solution/
 ├── .github/workflows/      # Pipeline CI/CD (GitHub Actions)
-│   └── deploy.yml
+│   └── ci.yml
 ├── prisma/                  # Schéma BDD, migrations et seed
 │   ├── schema.prisma
 │   ├── seed.ts
@@ -442,83 +444,86 @@ for i in {1..50}; do curl -s http://localhost:3000/api/health > /dev/null; done
 
 ## ⚙️ Pipeline CI/CD
 
-Le pipeline GitHub Actions (`.github/workflows/deploy.yml`) est déclenché à chaque push sur `main` ou `develop`.
+Le pipeline GitHub Actions (`.github/workflows/ci.yml`) est déclenché à chaque push ou pull request sur `main`.
 
 ### Schéma du pipeline
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
-│                             Push sur main / develop                                         │
+│                              Push sur main                                                  │
 └───────────────────────────────────┬─────────────────────────────────────────────────────────┘
                                     │
-            ┌───────────────────────┼──────────────┬────────────────────────┐
-            ▼                       ▼              ▼                        ▼
-    ┌───────────────┐        ┌──────────┐   ┌──────────────┐        ┌───────────────┐
-    │ 🏗️ Build,     │        │ 🧪 Tests │   │ 🔍 SonarQube │        │ 🔑 Gitleaks   │
-    │ Scan & Push   │        │ unitaires│   │ Analysis     │        │ Scan (Secrets)│
-    │               │        │          │   │              │        │               │
-    │ 1. Build img  │        │ npm ci   │   │ Qualité code │        │ Scan de tout  │
-    │ 2. Snyk Scan  │        │ vitest   │   │              │        │ l'historique  │
-    │ 3. Push GHCR  │        │          │   │              │        │               │
-    └───────┬───────┘        └────┬─────┘   └──────┬───────┘        └───────┬───────┘
-            │                     │                │                        │
-            └───────────┬─────────┴────────────────┴──────────┬─────────────┘
-                        ▼                                     │
-              ┌──────────────────┐                            │
-              │ 🚢 Deploy to VPS │  (main uniquement)         │
-              │                  │                            │
-              │ SSH → pull → up  │                            │
-              └──────────────────┘                            │
+        ┌───────────────┬───────────┼───────────┬──────────────┐
+        ▼               ▼           ▼           ▼              ▼
+ ┌──────────┐   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+ │ 🔍 Lint  │   │ 🧪 Tests │  │ SonarQube│  │ npm audit│  │ Gitleaks │
+ │ ESLint   │   │ Vitest   │  │  (SAST)  │  │  (SCA)   │  │ Secrets  │
+ └────┬─────┘   └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+      │              │             │              │             │
+      └──────────────┴──────┬──────┴──────────────┴─────────────┘
+                            │ Tout doit passer ✅
+                            ▼
+              ┌──────────────────────────┐
+              │ 🐳 Build Docker + Trivy  │
+              │ Scan (CRITICAL) → GHCR   │
+              └────────────┬─────────────┘
+                           │
+                           ▼
+              ┌──────────────────────────┐
+              │ 🚀 Deploy to VPS (SSH)   │
+              │ SCP configs + compose up │
+              └──────────────────────────┘
 ```
 
 ### Jobs détaillés
 
-#### 1. Build, Scan & Push (`build`)
-1. **Checkout** du code source
-2. **Login** au GitHub Container Registry (GHCR)
-3. **Build local** de l'image Docker (sans push, pour le scan)
-4. **Scan Snyk** de l'image — bloquant si vulnérabilités **High** ou **Critical**
-5. **Push** de l'image sur `ghcr.io` si le scan est passé
+#### 1. Lint (`lint`)
+- ESLint avec TypeScript — vérifie le style et les bonnes pratiques
 
-#### 2. Tests unitaires (`tests`)
-- Setup Node.js 20 avec cache npm
-- `npm ci` puis `npm run test` (Vitest)
+#### 2. Tests unitaires (`test`)
+- 35 tests via Vitest (auth, middleware, API, utils)
 
-#### 3. Analyse de qualité (`quality`)
-- Scan SonarQube (qualité du code, code smells, couverture)
+#### 3. SonarQube SAST (`sonarqube`)
+- Analyse statique : bugs, vulnérabilités, code smells, couverture
 
-#### 4. Détection de secrets (`secrets_scan`)
-- Analyse de tout l'historique Git via **Gitleaks** pour détecter d'éventuels secrets (clés API, mots de passe) commis par erreur.
+#### 4. npm audit SCA (`sca`)
+- Audit des dépendances — bloque si vulnérabilité **high** ou **critical**
 
-#### 5. Déploiement (`deploy`)
+#### 5. Gitleaks (`secrets-scan`)
+- Analyse de tout l'historique Git pour détecter des secrets (clés API, mots de passe)
+
+#### 6. Build, Scan & Push (`build`)
+1. Build local de l'image Docker (multi-stage, sans push)
+2. **Scan Trivy** — bloque si vulnérabilités **CRITICAL** (ignore-unfixed)
+3. Push sur `ghcr.io` si le scan passe (`latest` + tag SHA)
+
+#### 7. Déploiement (`deploy`)
 - Uniquement sur la branche `main`
-- Dépend du succès de **tous** les jobs précédents
-- Connexion SSH au VPS → `docker compose pull` → `docker compose up -d`
+- SCP des fichiers de config + SSH pour `docker compose up -d`
 
 ### Secrets GitHub requis
 
-| Secret                    | Description                          |
-| ------------------------- | ------------------------------------ |
-| `SNYK_TOKEN`              | Token API Snyk (container scan)      |
-| `SONAR_TOKEN`              | Token SonarQube                      |
-| `SONAR_HOST_URL`          | URL de l'instance SonarQube          |
-| `GITHUB_TOKEN`            | Fourni par GitHub (utilisé par Gitleaks) |
-| `DEPLOY_HOST`             | IP/hostname du VPS                   |
-| `DEPLOY_USER`             | Utilisateur SSH                      |
-| `DEPLOY_KEY`              | Clé privée SSH                       |
-| `DEPLOY_PORT`             | Port SSH                             |
+| Secret                    | Description                                |
+| ------------------------- | ------------------------------------------ |
+| `SONAR_TOKEN`             | Token d'authentification SonarQube         |
+| `SONAR_HOST_URL`          | URL du serveur SonarQube                   |
+| `VPS_HOST`                | Adresse IP du VPS                          |
+| `VPS_USER`                | Utilisateur SSH du VPS                     |
+| `VPS_SSH_KEY`             | Clé privée SSH (Ed25519)                   |
+| `GITHUB_TOKEN`            | Fourni automatiquement par GitHub          |
 
 ---
 
 ## 🛡️ Sécurité & DevSecOps
 
-### Pourquoi Snyk pour le Container Scanning ?
+### Pourquoi Trivy pour le Container Scanning ?
 
-Dans le cadre de notre démarche **DevSecOps**, nous avons intégré **Snyk** comme scanner de vulnérabilités pour nos images Docker. Contrairement à des outils comme Trivy ou Docker Scout, Snyk se distingue par :
+Dans le cadre de notre démarche **DevSecOps**, nous avons intégré **Trivy** (par Aqua Security) comme scanner de vulnérabilités pour nos images Docker :
 
-1. **Intelligence Contextuelle** : Snyk n'identifie pas seulement les vulnérabilités système (OS), mais analyse aussi les dépendances applicatives (`package.json`) et l'image de base Node.js.
-2. **Aide à la remédiation** : Il propose des chemins de mise à jour concrets (ex: suggérer une image de base plus récente et moins vulnérable, ou upgrader un paquet npm spécifique) plutôt que de simples alertes.
-3. **Filtrage par sévérité** : Notre pipeline est configuré avec `--severity-threshold=high` pour bloquer tout déploiement contenant des vulnérabilités de niveau **High** ou **Critical**, tout en laissant passer les Low/Medium.
+1. **Open Source & Gratuit** : Contrairement à Snyk (freemium), Trivy est 100% open source et intégré nativement dans les écosystèmes CI/CD.
+2. **Analyse complète** : Trivy scanne les vulnérabilités OS (Alpine packages) et applicatives (dépendances npm) en une seule passe.
+3. **Filtrage par sévérité** : Notre pipeline est configuré avec `severity: CRITICAL` et `ignore-unfixed: true` pour ne bloquer que sur les vulnérabilités critiques ayant un correctif disponible.
+4. **Rapidité** : Le scan s'exécute en quelques secondes grâce à sa base de données locale de vulnérabilités.
 
 ### Pourquoi Gitleaks pour la Détection de Secrets ?
 
@@ -535,7 +540,7 @@ Cette intégration applique le principe du **"Shift Left Security"** : la sécur
 | ----------------------------- | ------------------------------------------------------------------------- |
 | **Image de base Alpine**      | `node:20-alpine` — 0 vulnérabilité critique (vs 41 pour `node:20-slim`)  |
 | **npm supprimé en production**| Élimine les vulnérabilités de `cross-spawn`, `glob`, `minimatch`, `tar`   |
-| **Scan de conteneur (Snyk)**  | Bloque les vulnérabilités système et applicatives High/Critical           |
+| **Scan de conteneur (Trivy)** | Bloque les vulnérabilités système et applicatives CRITICAL                |
 | **Détection secrets (Gitleaks)**| Empêche le commit de clés API ou mots de passe dans le repo             |
 | **Qualité code (SonarQube)**  | Détecte les vulnérabilités logiques et les mauvais patterns de code       |
 | **Utilisateur non-root**      | Le conteneur tourne sous l'utilisateur `nextjs` (UID 1001)                |
@@ -544,11 +549,13 @@ Cette intégration applique le principe du **"Shift Left Security"** : la sécur
 | **Mots de passe hashés**      | bcrypt avec 10 rounds de salage                                            |
 | **Middleware RBAC**           | Protection des routes par rôle (ADMIN / USER) dans le middleware Next.js   |
 
-### Génération du SNYK_TOKEN
+### URLs de production
 
-1. Se connecter sur [app.snyk.io](https://app.snyk.io/)
-2. **Account Settings** → **Auth Token** → Copier le token
-3. Sur GitHub : **Settings** → **Secrets and variables** → **Actions** → Ajouter `SNYK_TOKEN`
+| Service | URL |
+|---------|-----|
+| **Application** | https://vitall.alexis.remy.mds-nantes.fr |
+| **Grafana** | https://grafana-vitall.alexis.remy.mds-nantes.fr |
+| **SonarQube** | https://sonarqube.alexis.remy.mds-nantes.fr |
 
 ---
 
@@ -854,7 +861,7 @@ docker compose up -d --force-recreate
 - [ ] Tester le flow complet de paiement Stripe
 - [ ] Vérifier les redirections HTTPS
 - [ ] Activer les logs d'erreur (Sentry, etc.)
-- [ ] S'assurer que le scan Snyk passe en CI sans vulnérabilité High/Critical
+- [ ] S'assurer que le scan Trivy passe en CI sans vulnérabilité CRITICAL
 - [ ] Vérifier le health check : `curl https://votre-domaine.fr/api/health`
 
 ---
@@ -866,7 +873,7 @@ docker compose up -d --force-recreate
 - [shadcn/ui](https://ui.shadcn.com/)
 - [Stripe Documentation](https://stripe.com/docs)
 - [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
-- [Snyk Documentation](https://docs.snyk.io/)
+- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
 - [SonarQube](https://docs.sonarqube.org/)
 
 ---
