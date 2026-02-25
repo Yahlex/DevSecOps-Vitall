@@ -1,7 +1,7 @@
 # =============================================================================
-# Pipeline CI - Vitall Solution
+# Pipeline CI/CD - Vitall Solution
 # Déclenché sur chaque push et pull request vers main
-# 3 jobs : lint, test, build & push de l'image Docker
+# Jobs : lint, test, security (SAST), build & push Docker
 # =============================================================================
 
 name: CI Pipeline
@@ -53,11 +53,27 @@ jobs:
       - name: Lancer les tests unitaires
         run: npm run test
 
-  # ---- Job 3 : Build de l'image Docker & push sur GHCR ----
+  # ---- Job 3 : Analyse de qualité et sécurité du code (SAST) ----
+  sonarqube:
+    name: 🔍 SonarQube (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Historique complet pour une meilleure analyse
+
+      - name: Scan SonarQube
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  # ---- Job 4 : Build de l'image Docker & push sur GHCR ----
   build:
     name: 🐳 Build & Push Docker
     runs-on: ubuntu-latest
-    needs: [lint, test] # On build seulement si lint + tests passent
+    needs: [lint, test, sonarqube] # On build seulement si tout passe
     permissions:
       contents: read
       packages: write
