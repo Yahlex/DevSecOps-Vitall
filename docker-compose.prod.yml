@@ -32,6 +32,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      HOSTNAME: "0.0.0.0"
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
