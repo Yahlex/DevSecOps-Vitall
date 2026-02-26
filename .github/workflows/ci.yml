@@ -63,6 +63,18 @@ jobs:
         with:
           fetch-depth: 0 # Historique complet pour une meilleure analyse
 
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Installation des dépendances
+        run: npm ci
+
+      - name: Génération du rapport de couverture
+        run: npx vitest run --coverage
+
       - name: Scan SonarQube
         uses: SonarSource/sonarqube-scan-action@v6
         env:
