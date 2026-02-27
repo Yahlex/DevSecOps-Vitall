@@ -10,6 +10,13 @@
 | 🔍 **SonarQube** | https://sonarqube.alexis.remy.mds-nantes.fr |
 | 📦 **Registry** | ghcr.io/yahlex/devsecops-vitall |
 
+### 🔐 Comptes de test
+
+| Rôle | Email | Mot de passe |
+|------|-------|-------------|
+| **Admin** | `admin@test.fr` | `password123` |
+| **Utilisateur** | `user@test.fr` | `user123` |
+
 ---
 
 ## 📑 Table des matières
