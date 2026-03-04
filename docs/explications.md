@@ -26,7 +26,7 @@ J'ai choisi GitHub Actions parce que c'est gratuit, intégré direct dans le rep
 La pipeline a **7 jobs** qui tournent dans cet ordre :
 
 1. **Lint** (ESLint) — ça vérifie que le code est propre
-2. **Tests** (Vitest) — 35 tests unitaires sur l'auth, le middleware, l'API
+2. **Tests** (Vitest) — 35 tests unitaires sur l'auth, le middleware, l'API(on peut en mettre encore plus et d'autres types de tests)
 3. **SonarQube** — analyse statique du code, bugs, failles, code smells
 4. **npm audit** — vérifie que les dépendances npm ont pas de failles connues
 5. **Gitleaks** — scanne l'historique Git pour vérifier qu'on a pas commit un mot de passe ou une clé API par erreur
